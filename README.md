@@ -5,11 +5,14 @@ There is no account, no server and no analytics. Everything you log stays on you
 
 ## Features
 
-- **Today view** shows your cycle day, days until your next period, and the current phase.
+- **Today view** shows a ring with all four cycle phases, your cycle day, days until your next period, and what the current phase means.
+- **Cycle phases** for menstruation, follicular, ovulation and luteal, each with dates for the current cycle.
+- **Heads-up from your patterns** warns about symptoms or moods that came back at the same point in earlier cycles, for example "You might feel sad Tue – Thu".
 - **One-tap logging** with "Period started today".
-- **Calendar** with logged periods, predicted periods, the estimated fertile window and ovulation day.
+- **Calendar** colored by phase, with logged periods, and lighter colors for predicted days.
 - **Daily log** for flow, symptoms, mood and free-text notes.
-- **Insights** with average cycle and period length, cycle range, regularity, cycle history and your most common symptoms.
+- **Your own symptom list.** Add and remove symptoms in Settings, or add one straight from the daily log.
+- **Insights** with average cycle and period length, cycle range, regularity, cycle history split into phases, what you log in each phase, and your most common symptoms.
 - **Backups** you can export to a JSON file and import on another device.
 - **Delete all data** in one step.
 - Works offline and can be installed to your home screen when served over HTTPS.
@@ -44,7 +47,14 @@ It then opens like an app and works offline.
 - Cycle length is measured from one period start to the next. The average uses your six most recent cycles.
 - Cycles shorter than 15 days or longer than 90 days are left out of averages, since they usually mean a gap in logging.
 - Until two periods are logged, predictions use the defaults in Settings.
-- Ovulation is estimated as the luteal phase length, 14 days by default, before the next expected period. The fertile window runs from five days before ovulation to one day after.
+- Ovulation is estimated as the luteal phase length, 14 days by default, before the next expected period.
+- Phases: menstruation covers the period days. The ovulation phase covers the estimated ovulation day plus one day either side. Follicular lies between them, and luteal runs from after ovulation to the next period.
+
+### Pattern heads-ups
+
+- The app looks at your six most recent completed cycles that have symptoms or moods logged.
+- Days before ovulation are compared by cycle day. Later days are compared by days until the next period, because PMS-type changes line up with the coming period.
+- A symptom or mood is flagged for one of the next seven days when it was logged within a day of the same point in at least two of those cycles, and in at least half of them.
 
 Predictions are estimates. They are not medical advice and must not be used as contraception.
 

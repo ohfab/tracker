@@ -6,8 +6,8 @@
   <title>Period Tracker</title>
   <meta name="description" content="A private period tracker. Your data never leaves this device.">
   <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; connect-src 'self'; object-src 'none'; base-uri 'none'">
-  <meta name="theme-color" content="#c2416b" media="(prefers-color-scheme: light)">
-  <meta name="theme-color" content="#151013" media="(prefers-color-scheme: dark)">
+  <meta name="theme-color" content="#ffe4ef" media="(prefers-color-scheme: light)">
+  <meta name="theme-color" content="#2b2236" media="(prefers-color-scheme: dark)">
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-title" content="Periods">
@@ -19,7 +19,7 @@
 </head>
 <body>
   <header class="app-header">
-    <h1><span class="logo" aria-hidden="true"></span>Period Tracker</h1>
+    <h1><svg class="logo" viewBox="0 0 64 64" aria-hidden="true"><g fill="none" stroke="currentColor" stroke-width="3.2" stroke-linejoin="round" stroke-linecap="round"><path d="M32 30C24.5 22.5 24.5 11.5 32 5.5 39.5 11.5 39.5 22.5 32 30Z"/><path d="M32 30C24.5 22.5 24.5 11.5 32 5.5 39.5 11.5 39.5 22.5 32 30Z" transform="rotate(72 32 32)"/><path d="M32 30C24.5 22.5 24.5 11.5 32 5.5 39.5 11.5 39.5 22.5 32 30Z" transform="rotate(144 32 32)"/><path d="M32 30C24.5 22.5 24.5 11.5 32 5.5 39.5 11.5 39.5 22.5 32 30Z" transform="rotate(216 32 32)"/><path d="M32 30C24.5 22.5 24.5 11.5 32 5.5 39.5 11.5 39.5 22.5 32 30Z" transform="rotate(288 32 32)"/><circle cx="32" cy="32" r="6" fill="var(--logo-center)"/></g></svg>Period Tracker</h1>
     <p class="privacy-pill" title="Nothing is uploaded. Data is stored in this browser only.">On-device only</p>
   </header>
 
@@ -30,7 +30,8 @@
         <div class="ring" id="ring" role="img" aria-label="">
           <svg viewBox="0 0 120 120" aria-hidden="true">
             <circle class="ring-track" cx="60" cy="60" r="52"></circle>
-            <circle class="ring-fill" id="ring-fill" cx="60" cy="60" r="52"></circle>
+            <g id="ring-segments"></g>
+            <circle class="ring-marker" id="ring-marker" cx="60" cy="8" r="6.5" hidden></circle>
           </svg>
           <div class="ring-text">
             <span class="ring-label" id="ring-label">Welcome</span>
@@ -38,6 +39,7 @@
             <span class="ring-sub" id="ring-sub"></span>
           </div>
         </div>
+        <p class="phase-chip" id="phase-chip" hidden></p>
         <p class="phase" id="phase-text">Log the first day of your last period to get started.</p>
         <div class="actions">
           <button class="btn primary" id="btn-period-today" type="button">Period started today</button>
@@ -45,12 +47,22 @@
         </div>
       </div>
 
-      <div class="card">
-        <h2>Coming up</h2>
-        <ul class="upcoming" id="upcoming"></ul>
+      <div class="card tint-lavender">
+        <h2>Your cycle phases</h2>
+        <ul class="phases" id="phases"></ul>
         <p class="hint" id="defaults-hint" hidden>
-          Predictions use your default cycle settings until two periods are logged.
+          Dates use your default cycle settings until two periods are logged.
         </p>
+      </div>
+
+      <div class="card tint-mint">
+        <h2>Heads-up from your patterns</h2>
+        <ul class="forecast" id="forecast"></ul>
+      </div>
+
+      <div class="card tint-peach">
+        <h2>Next periods</h2>
+        <ul class="upcoming" id="upcoming"></ul>
       </div>
 
       <p class="disclaimer">
@@ -71,12 +83,14 @@
         <div class="cal-grid" id="cal-grid" role="grid"></div>
         <button class="btn small ghost" id="cal-today" type="button">Jump to today</button>
         <ul class="legend">
-          <li><span class="sw period"></span>Period</li>
-          <li><span class="sw predicted"></span>Predicted</li>
-          <li><span class="sw fertile"></span>Fertile window</li>
+          <li><span class="sw period"></span>Logged period</li>
+          <li><span class="sw menstruation"></span>Menstruation</li>
+          <li><span class="sw follicular"></span>Follicular</li>
           <li><span class="sw ovulation"></span>Ovulation</li>
-          <li><span class="sw logged"></span>Has notes</li>
+          <li><span class="sw luteal"></span>Luteal</li>
+          <li><span class="sw logged"></span>Has entries</li>
         </ul>
+        <p class="hint">Lighter colors are predictions.</p>
         <p class="hint">Tap a day to log flow, symptoms, mood or notes.</p>
       </div>
     </section>
@@ -84,11 +98,15 @@
     <!-- INSIGHTS -->
     <section id="view-insights" class="view" aria-labelledby="tab-insights" hidden>
       <div class="tiles" id="tiles"></div>
-      <div class="card">
+      <div class="card tint-pink">
         <h2>Cycle history</h2>
         <div id="history"></div>
       </div>
-      <div class="card">
+      <div class="card tint-lavender">
+        <h2>What you notice in each phase</h2>
+        <div id="phase-patterns"></div>
+      </div>
+      <div class="card tint-sky">
         <h2>Most logged symptoms</h2>
         <div id="symptom-stats"></div>
       </div>
@@ -96,7 +114,19 @@
 
     <!-- SETTINGS -->
     <section id="view-settings" class="view" aria-labelledby="tab-settings" hidden>
-      <form class="card" id="settings-form">
+      <div class="card tint-mint">
+        <h2>Symptoms</h2>
+        <p class="hint">These are the symptoms you can pick when logging a day. Removing one keeps your past entries.</p>
+        <ul class="chips editable" id="symptom-list"></ul>
+        <form class="add-row" id="symptom-add-form">
+          <label class="sr-only" for="symptom-add-input">New symptom</label>
+          <input type="text" id="symptom-add-input" maxlength="40" placeholder="Add a symptom, e.g. Mood swings" autocomplete="off">
+          <button class="btn" type="submit">Add</button>
+        </form>
+        <button class="btn small ghost" id="symptom-reset" type="button">Restore default list</button>
+      </div>
+
+      <form class="card tint-lavender" id="settings-form">
         <h2>Cycle defaults</h2>
         <p class="hint">Used until enough history is logged. After that, your own averages take over.</p>
         <label class="field">
@@ -115,7 +145,7 @@
         <span class="saved" id="settings-saved" role="status"></span>
       </form>
 
-      <div class="card">
+      <div class="card tint-peach">
         <h2>Your data</h2>
         <p class="hint">
           Everything is stored in this browser only. Nothing is sent anywhere.
@@ -163,6 +193,11 @@
       <fieldset>
         <legend>Symptoms</legend>
         <div class="chips" id="symptom-chips"></div>
+        <div class="add-row compact">
+          <label class="sr-only" for="day-symptom-input">New symptom</label>
+          <input type="text" id="day-symptom-input" maxlength="40" placeholder="Something else?" autocomplete="off">
+          <button class="btn small" id="day-symptom-add" type="button">+ Add</button>
+        </div>
       </fieldset>
 
       <fieldset>

@@ -105,16 +105,82 @@ test('no data means no prediction', () => {
   assert.equal(p.upcoming.length, 0);
 });
 
-test('calendar marks keep logged periods over predictions', () => {
+test('calendar marks show phases and keep logged periods', () => {
   const days = logPeriod({}, '2024-01-01', 5);
-  days['2024-01-10'] = { note: 'headache', flow: null };
-  const pred = C.predict(days, {}, '2024-01-10');
-  const marks = C.calendarMarks(days, pred, '2024-01-01', '2024-02-29');
+  days['2024-01-10'] = { note: 'headache' };
+  const marks = C.calendarMarks(days, {}, '2024-01-10', '2024-01-01', '2024-02-29');
   assert.ok(marks['2024-01-01'].period);
+  assert.equal(marks['2024-01-01'].phase, 'menstruation');
+  assert.equal(marks['2024-01-08'].phase, 'follicular');
+  assert.equal(marks['2024-01-14'].phase, 'ovulation');
+  assert.equal(marks['2024-01-20'].phase, 'luteal');
   assert.ok(marks['2024-01-10'].logged);
-  assert.ok(marks['2024-01-15'].ovulation);
+  assert.equal(marks['2024-01-10'].predicted, false);
+  assert.equal(marks['2024-01-11'].predicted, true);
+  assert.equal(marks['2024-01-29'].phase, 'menstruation');
   assert.ok(marks['2024-01-29'].predicted);
-  assert.equal(marks['2024-03-01'], undefined);
+  assert.equal(marks['2023-12-31'], undefined);
+});
+
+test('phase ranges cover the cycle and handle short cycles', () => {
+  const r = C.phaseRanges('2024-01-01', 28, 5, 14);
+  assert.deepEqual(r.map(x => [x.phase, x.startDay, x.endDay]), [
+    ['menstruation', 1, 5], ['follicular', 6, 12], ['ovulation', 13, 15], ['luteal', 16, 28]
+  ]);
+  assert.equal(r[3].end, '2024-01-28');
+  const short = C.phaseRanges('2024-01-01', 21, 5, 14).map(x => x.phase);
+  assert.deepEqual(short, ['menstruation', 'ovulation', 'luteal']);
+});
+
+test('pattern forecast finds moods that repeat at the same cycle point', () => {
+  const days = {};
+  const starts = ['2024-01-01', '2024-01-29', '2024-02-26', '2024-03-25'];
+  starts.forEach(s => logPeriod(days, s, 5));
+  // Sad on cycle days 25-26 in the first three cycles (3-4 days before the next period)
+  starts.slice(0, 3).forEach(s => {
+    days[C.addDays(s, 24)] = { mood: 'Sad' };
+    days[C.addDays(s, 25)] = { mood: 'Sad', symptoms: ['Bloating'] };
+  });
+  // Cramps once only: not a pattern
+  days['2024-01-10'] = { symptoms: ['Cramps'] };
+  // Today is cycle day 22 of the current cycle
+  const f = C.patternForecast(days, {}, '2024-04-15', 7);
+  const sad = f.find(x => x.tag === 'mood:Sad');
+  assert.ok(sad, 'sad mood predicted');
+  assert.equal(sad.kind, 'mood');
+  assert.equal(sad.label, 'Sad');
+  assert.equal(sad.cycles, 3);
+  assert.equal(sad.of, 3);
+  assert.ok(sad.days.includes('2024-04-18'));
+  assert.ok(sad.days.includes('2024-04-19'));
+  assert.ok(!sad.days.includes('2024-04-15'));
+  assert.ok(f.find(x => x.tag === 'Bloating'));
+  assert.equal(f.find(x => x.tag === 'Cramps'), undefined);
+});
+
+test('pattern forecast needs at least two cycles with logs', () => {
+  const days = {};
+  logPeriod(days, '2024-01-01', 5);
+  logPeriod(days, '2024-01-29', 5);
+  days['2024-01-25'] = { mood: 'Sad' };
+  assert.deepEqual(C.patternForecast(days, {}, '2024-02-20', 7), []);
+});
+
+test('phaseTagCounts groups logs by phase', () => {
+  const days = logPeriod({}, '2024-01-01', 5);
+  days['2024-01-02'].symptoms = ['Cramps'];
+  days['2024-01-25'] = { mood: 'Irritable', symptoms: ['Bloating'] };
+  const c = C.phaseTagCounts(days, {}, '2024-01-26');
+  assert.equal(c.menstruation.Cramps, 1);
+  assert.equal(c.luteal['mood:Irritable'], 1);
+  assert.equal(c.luteal.Bloating, 1);
+});
+
+test('symptom lists are cleaned and default when missing', () => {
+  assert.deepEqual(C.cleanSymptomList([' Mood  swings ', 'mood swings', '', 5, 'mood:x', 'Joint pain']),
+    ['Mood swings', 'Joint pain']);
+  assert.deepEqual(C.sanitizeData({ days: {} }).symptoms, C.DEFAULT_SYMPTOMS);
+  assert.deepEqual(C.sanitizeData({ days: {}, symptoms: ['Hot flashes'] }).symptoms, ['Hot flashes']);
 });
 
 test('sanitizeData keeps valid entries and drops junk', () => {

@@ -1,6 +1,6 @@
 // Caches the app shell so the tracker works offline once loaded.
 // No user data passes through here; it lives in localStorage.
-var CACHE = 'period-tracker-v2';
+var CACHE = 'period-tracker-v3';
 var ASSETS = ['./', 'index.html', 'styles.css', 'cycle.js', 'app.js', 'icon.svg', 'manifest.webmanifest',
   'icons/icon-192.png', 'icons/icon-512.png', 'icons/maskable-512.png', 'icons/apple-touch-icon.png'];
 

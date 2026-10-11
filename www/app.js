@@ -21,20 +21,30 @@
     { id: 'medium', label: 'Medium' },
     { id: 'heavy', label: 'Heavy' }
   ];
-  var SYMPTOMS = [
-    'Cramps', 'Headache', 'Bloating', 'Back pain', 'Tender breasts', 'Acne',
-    'Fatigue', 'Nausea', 'Cravings', 'Insomnia', 'Discharge', 'Dizziness'
-  ];
   var MOODS = ['Happy', 'Calm', 'Energetic', 'Sensitive', 'Sad', 'Anxious', 'Irritable'];
-
-  var PHASE_TEXT = {
-    period: 'You are on your period. Rest up and stay hydrated.',
-    follicular: 'Follicular phase. Energy often rises as estrogen climbs.',
-    fertile: 'You are in your estimated fertile window.',
-    ovulation: 'Estimated ovulation day. This is the peak of the fertile window.',
-    luteal: 'Luteal phase. Some people notice PMS symptoms in the days before a period.',
-    late: 'Your period is later than predicted. Cycles vary, and stress, travel or illness can shift them.'
+  var MOOD_EMOJI = {
+    Happy: '😊', Calm: '😌', Energetic: '⚡', Sensitive: '🥺', Sad: '😢', Anxious: '😟', Irritable: '😤'
   };
+
+  var PHASE_INFO = {
+    menstruation: {
+      name: 'Menstruation',
+      desc: 'Your period. Energy is often lower, so go easy on yourself.'
+    },
+    follicular: {
+      name: 'Follicular phase',
+      desc: 'Estrogen rises after your period. Energy and mood often lift.'
+    },
+    ovulation: {
+      name: 'Ovulation',
+      desc: 'An egg is released around mid-cycle. Many people feel their most energetic now.'
+    },
+    luteal: {
+      name: 'Luteal phase',
+      desc: 'Progesterone rises. PMS signs like bloating or mood changes can show up near the end.'
+    }
+  };
+  var LATE_TEXT = 'Your period is later than predicted. Cycles vary, and stress, travel or illness can shift them.';
 
   // ---------- State ----------
 
@@ -42,9 +52,10 @@
   var storageOK = true;
   var viewMonth = monthOf(today());
   var editingDate = null;
+  var currentView = 'today';
 
   function emptyState() {
-    return { version: 1, days: {}, settings: C.normalizeSettings({}) };
+    return { version: 1, days: {}, settings: C.normalizeSettings({}), symptoms: C.DEFAULT_SYMPTOMS.slice() };
   }
 
   function load() {
@@ -93,6 +104,12 @@
     return node;
   }
 
+  function svgEl(tag, attrs) {
+    var node = document.createElementNS('http://www.w3.org/2000/svg', tag);
+    Object.keys(attrs).forEach(function (k) { node.setAttribute(k, attrs[k]); });
+    return node;
+  }
+
   function toDate(iso) {
     return new Date(+iso.slice(0, 4), +iso.slice(5, 7) - 1, +iso.slice(8, 10));
   }
@@ -101,10 +118,10 @@
   var fmtLong = new Intl.DateTimeFormat(undefined, { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' });
   var fmtMonth = new Intl.DateTimeFormat(undefined, { month: 'long', year: 'numeric' });
   var fmtWeekday = new Intl.DateTimeFormat(undefined, { weekday: 'narrow' });
+  var fmtWeekdayShort = new Intl.DateTimeFormat(undefined, { weekday: 'short' });
 
   function short(iso) { return fmtShort.format(toDate(iso)); }
   function range(a, b) { return a === b ? short(a) : short(a) + ' – ' + short(b); }
-
   function plural(n, word) { return n + ' ' + word + (n === 1 ? '' : 's'); }
 
   function relative(n) {
@@ -112,6 +129,14 @@
     if (n === 1) return 'tomorrow';
     if (n === -1) return 'yesterday';
     return n > 0 ? 'in ' + plural(n, 'day') : plural(-n, 'day') + ' ago';
+  }
+
+  // "today", "tomorrow" or a short weekday name, for dates in the next week.
+  function dayName(iso) {
+    var n = C.diffDays(today(), iso);
+    if (n === 0) return 'today';
+    if (n === 1) return 'tomorrow';
+    return fmtWeekdayShort.format(toDate(iso));
   }
 
   function monthOf(iso) { return { y: +iso.slice(0, 4), m: +iso.slice(5, 7) - 1 }; }
@@ -122,62 +147,100 @@
 
   function setMsg(text) { $('data-msg').textContent = text; }
 
-  function predictionFor(untilISO) {
-    var t = today();
-    var stats = C.getStats(state.days, state.settings);
-    var count = 3;
-    if (untilISO && untilISO > t) {
-      count = Math.max(3, Math.ceil(C.diffDays(t, untilISO) / stats.cycleLength) + 1);
+  function tagLabel(tag) {
+    if (tag.indexOf('mood:') === 0) {
+      var m = tag.slice(5);
+      return (MOOD_EMOJI[m] ? MOOD_EMOJI[m] + ' ' : '') + m;
     }
-    return C.predict(state.days, state.settings, t, Math.min(count, 60));
+    return tag;
+  }
+
+  function hasSymptom(list, name) {
+    var key = name.toLowerCase();
+    return list.some(function (s) { return s.toLowerCase() === key; });
   }
 
   // ---------- Today ----------
 
   function renderToday() {
     var t = today();
-    var p = predictionFor();
-    var ring = $('ring');
-    var fill = $('ring-fill');
-    var circumference = 2 * Math.PI * 52;
-    var label = 'Welcome', big = '—', sub = '', progress = 0, color = '';
+    var tl = C.cycleTimeline(state.days, state.settings, t, 3);
+    var p = tl.prediction;
+    var luteal = p.stats.lutealLength;
+    var current = tl.cycles.filter(function (c) { return c.kind === 'current'; })[0];
+    var cd = p.cycleDay;
+    var late = p.daysLate > 0;
 
-    if (p.lastPeriod) {
-      progress = Math.min(1, p.cycleDay / p.stats.cycleLength);
-      if (p.onPeriod) {
-        label = 'Period';
-        big = 'Day ' + p.cycleDay;
-        sub = 'Cycle day ' + p.cycleDay;
-        color = 'var(--period)';
-      } else if (p.daysLate > 0) {
-        label = 'Period is';
-        big = plural(p.daysLate, 'day');
-        sub = 'late';
-        progress = 1;
-        color = 'var(--muted)';
-      } else if (p.daysUntilNext === 0) {
-        label = 'Period expected';
-        big = 'Today';
-        sub = 'Cycle day ' + p.cycleDay;
-      } else {
-        label = 'Period in';
-        big = String(p.daysUntilNext);
-        sub = (p.daysUntilNext === 1 ? 'day' : 'days') + ' · cycle day ' + p.cycleDay;
-        if (p.phase === 'fertile' || p.phase === 'ovulation') color = 'var(--ovulation)';
-      }
+    var ranges, length;
+    if (current) {
+      length = current.length;
+      ranges = C.phaseRanges(current.start, length, current.periodLength, luteal);
+    } else {
+      length = p.stats.cycleLength;
+      ranges = C.phaseRanges(t, length, p.stats.periodLength, luteal);
     }
 
+    // Ring: one colored arc per phase, a marker on today.
+    var circ = 2 * Math.PI * 52;
+    var segs = $('ring-segments');
+    segs.textContent = '';
+    ranges.forEach(function (r) {
+      var a = (r.startDay - 1) / length;
+      var b = r.endDay / length;
+      var seg = svgEl('circle', {
+        cx: 60, cy: 60, r: 52,
+        class: 'ring-seg' + (current && !late && r.startDay > cd ? ' future' : ''),
+        stroke: 'var(--' + r.phase + ')',
+        'stroke-dasharray': Math.max(0, (b - a) * circ - 1.5) + ' ' + circ,
+        'stroke-dashoffset': String(-a * circ)
+      });
+      segs.appendChild(seg);
+    });
+    var marker = $('ring-marker');
+    if (current) {
+      var pos = late ? 1 : (cd - 0.5) / length;
+      var ang = pos * 2 * Math.PI;
+      marker.setAttribute('cx', String(60 + 52 * Math.cos(ang)));
+      marker.setAttribute('cy', String(60 + 52 * Math.sin(ang)));
+      marker.hidden = false;
+    } else {
+      marker.hidden = true;
+    }
+
+    var label = 'Welcome', big = '—', sub = '';
+    var phase = null;
+    if (current) {
+      if (late) {
+        label = 'Period is';
+        big = String(p.daysLate);
+        sub = (p.daysLate === 1 ? 'day' : 'days') + ' late';
+      } else {
+        phase = C.phaseOfDay(cd, length, current.periodLength, luteal);
+        label = 'Cycle day';
+        big = String(cd);
+        sub = p.onPeriod ? 'On your period'
+          : p.daysUntilNext === 0 ? 'Period expected today'
+          : 'Period in ' + plural(p.daysUntilNext, 'day');
+      }
+    }
     $('ring-label').textContent = label;
     $('ring-big').textContent = big;
     $('ring-sub').textContent = sub;
-    ring.setAttribute('aria-label', p.lastPeriod ? [label, big, sub].join(' ') : 'No periods logged yet');
-    fill.style.strokeDashoffset = String(circumference * (1 - progress));
-    fill.style.stroke = color;
-    fill.style.opacity = progress > 0 ? '1' : '0';
+    $('ring').setAttribute('aria-label', current ? [label, big, sub].join(' ') : 'No periods logged yet');
 
-    $('phase-text').textContent = p.lastPeriod
-      ? (p.daysUntilNext === 0 && !p.onPeriod ? 'Your period is expected today.' : PHASE_TEXT[p.phase])
-      : 'Log the first day of your last period to get started. Use the calendar to add earlier periods.';
+    var chip = $('phase-chip');
+    if (phase || late) {
+      var ph = phase || 'luteal';
+      chip.hidden = false;
+      chip.dataset.phase = ph;
+      chip.style.background = 'var(--' + ph + ')';
+      chip.textContent = late ? 'Period late' : PHASE_INFO[ph].name;
+    } else {
+      chip.hidden = true;
+    }
+    $('phase-text').textContent = !current
+      ? 'Log the first day of your last period to get started. Use the calendar to add earlier periods.'
+      : late ? LATE_TEXT : PHASE_INFO[phase].desc;
 
     var todayEntry = state.days[t];
     var hasFlow = todayEntry && todayEntry.flow && todayEntry.flow !== 'spotting';
@@ -185,38 +248,84 @@
     btn.textContent = hasFlow ? 'Period logged today ✓' : (p.onPeriod ? 'Log period today' : 'Period started today');
     btn.dataset.mode = hasFlow ? 'edit' : 'log';
 
-    // Upcoming events
+    renderPhaseList(ranges, current ? t : null, late);
+    $('defaults-hint').hidden = !(current && p.stats.usingDefaults);
+    renderForecast(p);
+
+    // Next periods
     var list = $('upcoming');
     list.textContent = '';
-    var items = [];
-    if (p.lastPeriod) {
-      var fertile = p.currentFertile && p.currentFertile.end >= t && !p.daysLate
-        ? p.currentFertile
-        : (p.upcoming[0] && p.upcoming[0].fertile);
-      if (fertile) {
-        items.push({ type: 'fertile', what: 'Fertile window', start: fertile.start, end: fertile.end });
-        if (fertile.ovulation >= t) {
-          items.push({ type: 'fertile', what: 'Ovulation', start: fertile.ovulation, end: fertile.ovulation });
-        }
-      }
-      p.upcoming.forEach(function (u, i) {
-        items.push({ type: 'period', what: i === 0 ? 'Next period' : 'Period', start: u.start, end: u.end });
-      });
-      items.sort(function (a, b) { return a.start < b.start ? -1 : a.start > b.start ? 1 : 0; });
-    }
-    if (!items.length) {
+    if (!p.upcoming.length) {
       list.appendChild(el('li', { class: 'empty', text: 'Predictions appear once you log a period.' }));
     }
-    items.forEach(function (it) {
-      var startIn = C.diffDays(t, it.start);
-      var when = it.start <= t && it.end >= t ? 'now' : relative(startIn);
+    p.upcoming.forEach(function (u, i) {
       list.appendChild(el('li', null, [
-        el('span', { class: 'dot ' + it.type, 'aria-hidden': 'true' }),
-        el('span', { class: 'what' }, [el('strong', { text: it.what }), el('br'), el('span', { class: 'hint', text: range(it.start, it.end) })]),
-        el('span', { class: 'when', text: when })
+        el('span', { class: 'dot', 'aria-hidden': 'true' }),
+        el('span', { class: 'what' }, [
+          el('strong', { text: i === 0 ? 'Next period' : 'Period' }), el('br'),
+          el('span', { class: 'hint', text: range(u.start, u.end) })
+        ]),
+        el('span', { class: 'when', text: relative(C.diffDays(t, u.start)) })
       ]));
     });
-    $('defaults-hint').hidden = !(p.lastPeriod && p.stats.usingDefaults);
+  }
+
+  function renderPhaseList(ranges, t, late) {
+    var list = $('phases');
+    list.textContent = '';
+    C.PHASES.forEach(function (ph) {
+      var r = ranges.filter(function (x) { return x.phase === ph; })[0];
+      var info = PHASE_INFO[ph];
+      var when = '', isNow = false;
+      if (r && t) {
+        isNow = !late && r.start <= t && r.end >= t;
+        when = range(r.start, r.end);
+      } else if (r) {
+        when = r.startDay === r.endDay ? 'Day ' + r.startDay : 'Days ' + r.startDay + '–' + r.endDay;
+      } else {
+        when = 'Skipped in this cycle';
+      }
+      var status = '';
+      if (r && t && !isNow) {
+        status = r.end < t ? 'done' : relative(C.diffDays(t, r.start));
+      }
+      list.appendChild(el('li', { 'data-phase': ph, class: isNow ? 'now' : null }, [
+        el('span', { class: 'dot', 'aria-hidden': 'true' }),
+        el('span', { class: 'name' }, [info.name, isNow ? el('span', { class: 'now-tag', text: 'now' }) : null]),
+        el('span', { class: 'when' }, [when, status ? el('br') : null, status || null]),
+        el('span', { class: 'desc', text: info.desc })
+      ]));
+    });
+  }
+
+  function renderForecast(p) {
+    var t = today();
+    var list = $('forecast');
+    list.textContent = '';
+    var items = C.patternForecast(state.days, state.settings, t, 7);
+    if (!items.length) {
+      list.appendChild(el('li', {
+        class: 'empty',
+        text: p.stats.cycleCount < 2
+          ? 'Log symptoms and moods over a few cycles. When something keeps coming back at the same point in your cycle, you will get a heads-up here.'
+          : 'Nothing from your past cycles stands out for the next 7 days.'
+      }));
+      return;
+    }
+    var marks = C.calendarMarks(state.days, state.settings, t, t, C.addDays(t, 7));
+    items.slice(0, 6).forEach(function (f) {
+      var first = f.days[0], last = f.days[f.days.length - 1];
+      var when = first === last ? dayName(first) : dayName(first) + ' – ' + dayName(last);
+      var title = f.kind === 'mood'
+        ? 'You might feel ' + f.label.toLowerCase() + ' ' + when
+        : f.label + ' might show up ' + when;
+      var ph = marks[first] && marks[first].phase;
+      list.appendChild(el('li', { 'data-phase': ph || null }, [
+        el('span', { class: 'badge', 'aria-hidden': 'true', text: f.kind === 'mood' ? (MOOD_EMOJI[f.label] || '💭') : '🌸' }),
+        el('span', { class: 'title', text: title.charAt(0).toUpperCase() + title.slice(1) }),
+        el('span', { class: 'detail', text: 'You logged this around this point in ' + f.cycles + ' of your last ' + f.of + ' cycles.' })
+      ]));
+    });
   }
 
   // ---------- Calendar ----------
@@ -227,8 +336,7 @@
     var startOffset = toDate(first).getDay();
     var gridStart = C.addDays(first, -startOffset);
     var gridEnd = C.addDays(gridStart, 41);
-    var p = predictionFor(gridEnd);
-    var marks = C.calendarMarks(state.days, p, gridStart, gridEnd);
+    var marks = C.calendarMarks(state.days, state.settings, t, gridStart, gridEnd);
 
     $('cal-title').textContent = fmtMonth.format(toDate(first));
 
@@ -249,18 +357,17 @@
       if (+iso.slice(5, 7) - 1 !== viewMonth.m) classes.push('out');
       if (iso === t) { classes.push('today'); desc.push('today'); }
       if (m.period) { classes.push('period'); desc.push('period'); }
-      else if (m.predicted) { classes.push('predicted'); desc.push('predicted period'); }
-      else if (m.fertile) { classes.push('fertile'); desc.push(m.ovulation ? 'estimated ovulation' : 'fertile window'); }
-      if (m.ovulation && !m.period) classes.push('ovulation');
+      else if (m.phase) desc.push((m.predicted ? 'predicted ' : '') + PHASE_INFO[m.phase].name.toLowerCase());
+      if (m.predicted) classes.push('predicted');
       if (m.spotting) { classes.push('spotting'); desc.push('spotting'); }
       if (m.logged) { classes.push('logged'); desc.push('has entries'); }
-      var label = fmtLong.format(toDate(iso)) + (desc.length ? ', ' + desc.join(', ') : '');
       row.appendChild(el('button', {
         type: 'button',
         role: 'gridcell',
         class: classes.join(' '),
         'data-date': iso,
-        'aria-label': label,
+        'data-phase': m.phase || null,
+        'aria-label': fmtLong.format(toDate(iso)) + (desc.length ? ', ' + desc.join(', ') : ''),
         'aria-current': iso === t ? 'date' : null,
         text: String(+iso.slice(8, 10))
       }));
@@ -276,8 +383,11 @@
   // ---------- Insights ----------
 
   function renderInsights() {
-    var p = predictionFor();
+    var t = today();
+    var tl = C.cycleTimeline(state.days, state.settings, t, 1);
+    var p = tl.prediction;
     var s = p.stats;
+    var luteal = s.lutealLength;
     var tiles = $('tiles');
     tiles.textContent = '';
 
@@ -297,60 +407,96 @@
     tile('Cycle range', s.shortestCycle === null ? '—' : s.shortestCycle + '–' + s.longestCycle, s.shortestCycle === null ? '' : 'days');
     tile('Regularity', regularity, s.variation !== null ? '±' + fmt(s.variation) + 'd' : '');
 
-    // History
+    // History: each cycle as a bar split into its phases.
     var hist = $('history');
     hist.textContent = '';
-    var rows = s.cycles.slice().reverse().slice(0, 12).map(function (c) {
-      return { start: c.start, length: c.length, period: c.periodLength, valid: c.valid, current: false };
-    });
-    if (p.lastPeriod) {
-      rows.unshift({ start: p.lastPeriod.start, length: p.cycleDay, period: p.lastPeriod.length, valid: true, current: true });
-    }
+    var rows = tl.cycles.filter(function (c) { return c.kind !== 'predicted'; }).reverse().slice(0, 12);
     if (!rows.length) {
       hist.appendChild(el('p', { class: 'empty-state', text: 'Your cycles will show here once you log periods.' }));
     } else {
-      var scale = Math.max(40, s.longestCycle || 0, rows[0].length);
+      var scale = Math.max(40, s.longestCycle || 0, rows[0].length, p.cycleDay || 0);
       var wrap = el('div', { class: 'history' });
-      rows.forEach(function (r) {
-        var len = Math.min(r.length, scale);
-        var pLen = Math.min(r.period, len);
+      rows.forEach(function (c) {
+        var isCur = c.kind === 'current';
+        var len = Math.min(c.length, scale);
+        var parts = c.valid
+          ? C.phaseRanges(c.start, len, c.periodLength, luteal)
+          : [{ phase: 'menstruation', startDay: 1, endDay: Math.min(c.periodLength, len) }];
+        var bar = el('div', {
+          class: 'bar' + (isCur ? ' current' : ''),
+          role: 'img',
+          'aria-label': isCur
+            ? 'Current cycle, day ' + p.cycleDay + ' of about ' + c.length
+            : 'Cycle of ' + c.length + ' days, period ' + c.periodLength + ' days'
+        });
+        parts.forEach(function (r) {
+          var pieces = [[r.startDay, r.endDay, false]];
+          if (isCur && p.cycleDay >= r.startDay && p.cycleDay < r.endDay) {
+            pieces = [[r.startDay, p.cycleDay, false], [p.cycleDay + 1, r.endDay, true]];
+          } else if (isCur && r.startDay > p.cycleDay) {
+            pieces = [[r.startDay, r.endDay, true]];
+          }
+          pieces.forEach(function (pc) {
+            bar.appendChild(el('span', {
+              class: 'seg' + (pc[2] ? ' future' : ''),
+              'data-phase': r.phase,
+              style: 'width:' + ((pc[1] - pc[0] + 1) / scale * 100) + '%'
+            }));
+          });
+        });
         wrap.appendChild(el('div', { class: 'hrow' }, [
-          el('span', { class: 'date', text: r.current ? 'Current' : short(r.start) }),
-          el('div', {
-            class: 'bar' + (r.current ? ' current' : ''),
-            role: 'img',
-            'aria-label': (r.current ? 'Current cycle, day ' : 'Cycle of ') + r.length + (r.current ? '' : ' days') + ', period ' + r.period + ' days'
-          }, [
-            el('span', { class: 'p', style: 'width:' + (pLen / scale * 100) + '%' }),
-            el('span', { class: 'r', style: 'width:' + ((len - pLen) / scale * 100) + '%' })
-          ]),
+          el('span', { class: 'date', text: isCur ? 'Current' : short(c.start) }),
+          bar,
           el('span', {
-            class: 'len' + (r.valid ? '' : ' flag'),
-            title: r.valid ? null : 'Unusual length. Left out of averages, possibly a gap in logging.',
-            text: r.length + 'd'
+            class: 'len' + (c.valid ? '' : ' flag'),
+            title: c.valid ? null : 'Unusual length. Left out of averages, possibly a gap in logging.',
+            text: isCur ? p.cycleDay + 'd' : c.length + 'd'
           })
         ]));
       });
       hist.appendChild(wrap);
     }
 
-    // Symptoms
-    var counts = {};
-    Object.keys(state.days).forEach(function (d) {
-      (state.days[d].symptoms || []).forEach(function (sym) { counts[sym] = (counts[sym] || 0) + 1; });
-    });
-    var top = Object.keys(counts).sort(function (a, b) { return counts[b] - counts[a]; }).slice(0, 8);
-    var box = $('symptom-stats');
+    // What shows up in each phase
+    var counts = C.phaseTagCounts(state.days, state.settings, t);
+    var box = $('phase-patterns');
     box.textContent = '';
-    if (!top.length) {
-      box.appendChild(el('p', { class: 'empty-state', text: 'Log symptoms on any day to see patterns here.' }));
+    var anyTags = C.PHASES.some(function (ph) { return Object.keys(counts[ph]).length; });
+    if (!anyTags) {
+      box.appendChild(el('p', { class: 'empty-state', text: 'Log symptoms and moods to see which ones belong to which phase.' }));
     } else {
-      var max = counts[top[0]];
-      top.forEach(function (sym) {
-        box.appendChild(el('div', { class: 'sym-row' }, [
+      var wrapP = el('div', { class: 'ph-pattern' });
+      C.PHASES.forEach(function (ph) {
+        var c = counts[ph];
+        var top = Object.keys(c).sort(function (a, b) { return c[b] - c[a]; }).slice(0, 5);
+        wrapP.appendChild(el('div', { class: 'ph-row', 'data-phase': ph }, [
+          el('span', { class: 'dot', 'aria-hidden': 'true' }),
+          el('span', { class: 'name', text: PHASE_INFO[ph].name }),
+          el('div', { class: 'tags' }, top.length
+            ? top.map(function (tag) { return el('span', { class: 'tag' }, [tagLabel(tag) + ' ', el('b', { text: '×' + c[tag] })]); })
+            : [el('span', { class: 'hint', style: 'margin:0', text: 'Nothing logged yet' })])
+        ]));
+      });
+      box.appendChild(wrapP);
+    }
+
+    // Symptoms overall
+    var totals = {};
+    Object.keys(state.days).forEach(function (d) {
+      (state.days[d].symptoms || []).forEach(function (sym) { totals[sym] = (totals[sym] || 0) + 1; });
+    });
+    var topSym = Object.keys(totals).sort(function (a, b) { return totals[b] - totals[a]; }).slice(0, 8);
+    var symBox = $('symptom-stats');
+    symBox.textContent = '';
+    if (!topSym.length) {
+      symBox.appendChild(el('p', { class: 'empty-state', text: 'Log symptoms on any day to see them here.' }));
+    } else {
+      var max = totals[topSym[0]];
+      topSym.forEach(function (sym, i) {
+        symBox.appendChild(el('div', { class: 'sym-row', 'data-phase': C.PHASES[i % 4] }, [
           el('span', { text: sym }),
-          el('div', { class: 'bar', 'aria-hidden': 'true' }, [el('span', { class: 'p', style: 'width:' + (counts[sym] / max * 100) + '%' })]),
-          el('span', { class: 'n', text: String(counts[sym]) })
+          el('div', { class: 'bar', 'aria-hidden': 'true' }, [el('span', { class: 'seg', style: 'width:' + (totals[sym] / max * 100) + '%' })]),
+          el('span', { class: 'n', text: String(totals[sym]) })
         ]));
       });
     }
@@ -363,19 +509,60 @@
   function renderSettings() {
     var f = $('settings-form');
     Object.keys(LIMITS).forEach(function (k) { f.elements[k].value = state.settings[k]; });
+    renderSymptomList();
+  }
+
+  function renderSymptomList() {
+    var list = $('symptom-list');
+    list.textContent = '';
+    if (!state.symptoms.length) {
+      list.appendChild(el('li', { class: 'hint', style: 'background:none;border:0;padding:0', text: 'No symptoms in your list.' }));
+    }
+    state.symptoms.forEach(function (sym) {
+      list.appendChild(el('li', null, [
+        el('span', { text: sym }),
+        el('button', { type: 'button', 'aria-label': 'Remove ' + sym, 'data-remove': sym, text: '×' })
+      ]));
+    });
+  }
+
+  // Adds a symptom to the list. Returns the stored name, or null if empty.
+  function addSymptom(raw) {
+    var name = C.cleanSymptomList([raw])[0];
+    if (!name) return null;
+    var existing = state.symptoms.filter(function (s) { return s.toLowerCase() === name.toLowerCase(); })[0];
+    if (existing) return existing;
+    state.symptoms.push(name);
+    save();
+    renderSymptomList();
+    return name;
   }
 
   // ---------- Day editor ----------
 
-  function buildChips(container, name, type, options, extraClass) {
+  function buildChips(container, name, type, options, extraClass, checked) {
+    container.textContent = '';
     options.forEach(function (o) {
       var value = typeof o === 'string' ? o : o.id;
       var label = typeof o === 'string' ? o : o.label;
+      if (name === 'mood' && MOOD_EMOJI[value]) label = MOOD_EMOJI[value] + ' ' + label;
       container.appendChild(el('label', { class: 'chip' + (extraClass ? ' ' + extraClass : '') }, [
-        el('input', { type: type, name: name, value: value }),
+        el('input', { type: type, name: name, value: value, checked: checked ? checked.indexOf(value) !== -1 : null }),
         el('span', { text: label })
       ]));
     });
+  }
+
+  // Your list, plus anything logged on this day that is no longer in it.
+  function buildSymptomChips(checked) {
+    var options = state.symptoms.slice();
+    checked.forEach(function (s) { if (!hasSymptom(options, s)) options.push(s); });
+    buildChips($('symptom-chips'), 'symptom', 'checkbox', options, null, checked);
+  }
+
+  function checkedSymptoms() {
+    return Array.prototype.filter.call($('day-form').querySelectorAll('input[name="symptom"]'), function (c) { return c.checked; })
+      .map(function (c) { return c.value; });
   }
 
   function openEditor(iso) {
@@ -385,9 +572,10 @@
     var t = today();
     $('day-title').textContent = (iso === t ? 'Today, ' : '') + fmtLong.format(toDate(iso));
     Array.prototype.forEach.call(form.elements.flow, function (r) { r.checked = r.value === (e.flow || ''); });
-    Array.prototype.forEach.call(form.elements.symptom, function (c) { c.checked = (e.symptoms || []).indexOf(c.value) !== -1; });
+    buildSymptomChips(e.symptoms || []);
     Array.prototype.forEach.call(form.elements.mood, function (r) { r.checked = r.value === e.mood; });
     $('day-note').value = e.note || '';
+    $('day-symptom-input').value = '';
     Array.prototype.forEach.call(form.elements.mood, function (r) { r.dataset.wasChecked = String(r.checked); });
     var dlg = $('day-dialog');
     dlg.returnValue = '';
@@ -395,25 +583,28 @@
     else dlg.setAttribute('open', '');
   }
 
+  function addSymptomInEditor() {
+    var input = $('day-symptom-input');
+    var name = addSymptom(input.value);
+    if (!name) return;
+    var checked = checkedSymptoms();
+    if (checked.indexOf(name) === -1) checked.push(name);
+    buildSymptomChips(checked);
+    input.value = '';
+    input.focus();
+  }
+
   function saveEditor() {
     var form = $('day-form');
     var entry = {};
     var flow = form.querySelector('input[name="flow"]:checked');
     if (flow && flow.value) entry.flow = flow.value;
-    var syms = Array.prototype.filter.call(form.elements.symptom, function (c) { return c.checked; })
-      .map(function (c) { return c.value; });
+    var syms = checkedSymptoms();
     if (syms.length) entry.symptoms = syms;
     var mood = form.querySelector('input[name="mood"]:checked');
     if (mood) entry.mood = mood.value;
     var note = $('day-note').value.trim();
     if (note) entry.note = note;
-    // Keep symptoms that came from an import but are not in the chip list.
-    var prev = state.days[editingDate];
-    if (prev && prev.symptoms) {
-      prev.symptoms.forEach(function (sym) {
-        if (SYMPTOMS.indexOf(sym) === -1) (entry.symptoms = entry.symptoms || []).push(sym);
-      });
-    }
     setDay(editingDate, entry);
   }
 
@@ -462,8 +653,6 @@
 
   // ---------- Tabs ----------
 
-  var currentView = 'today';
-
   function showView(name) {
     currentView = name;
     ['today', 'calendar', 'insights', 'settings'].forEach(function (v) {
@@ -486,8 +675,7 @@
 
   function init() {
     buildChips($('flow-chips'), 'flow', 'radio', FLOWS, 'flow');
-    buildChips($('symptom-chips'), 'symptom', 'checkbox', SYMPTOMS);
-    buildChips($('mood-chips'), 'mood', 'radio', MOODS);
+    buildChips($('mood-chips'), 'mood', 'radio', MOODS, 'mood');
 
     // Let a selected mood be tapped again to clear it.
     $('mood-chips').addEventListener('click', function (ev) {
@@ -538,9 +726,34 @@
       $('day-dialog').close('cancel');
       if (iso) setDay(iso, null);
     });
-    // Close when tapping the backdrop.
     $('day-dialog').addEventListener('click', function (ev) {
       if (ev.target === this) this.close('cancel');
+    });
+    $('day-symptom-add').addEventListener('click', addSymptomInEditor);
+    // Enter in this field would otherwise submit (and close) the dialog.
+    $('day-symptom-input').addEventListener('keydown', function (ev) {
+      if (ev.key === 'Enter') { ev.preventDefault(); addSymptomInEditor(); }
+    });
+
+    $('symptom-add-form').addEventListener('submit', function (ev) {
+      ev.preventDefault();
+      var input = $('symptom-add-input');
+      if (addSymptom(input.value)) input.value = '';
+      input.focus();
+    });
+    $('symptom-list').addEventListener('click', function (ev) {
+      var btn = ev.target.closest('button[data-remove]');
+      if (!btn) return;
+      var name = btn.dataset.remove;
+      state.symptoms = state.symptoms.filter(function (s) { return s !== name; });
+      save();
+      renderSymptomList();
+    });
+    $('symptom-reset').addEventListener('click', function () {
+      if (!confirm('Replace your symptom list with the default list? Your logged days are not changed.')) return;
+      state.symptoms = C.DEFAULT_SYMPTOMS.slice();
+      save();
+      renderSymptomList();
     });
 
     $('settings-form').addEventListener('submit', function (ev) {
@@ -631,7 +844,6 @@
     renderSettings();
     renderAll();
     showView(startView);
-
     initNative();
 
     if (!isNative && 'serviceWorker' in navigator && /^https?:$/.test(location.protocol)) {

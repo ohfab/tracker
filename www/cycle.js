@@ -21,6 +21,29 @@
   // Flow days separated by at most this many days belong to one period.
   var MAX_GAP_IN_PERIOD = 2;
 
+  var DEFAULT_SYMPTOMS = [
+    'Cramps', 'Headache', 'Bloating', 'Back pain', 'Tender breasts', 'Acne',
+    'Fatigue', 'Nausea', 'Cravings', 'Insomnia', 'Discharge', 'Dizziness'
+  ];
+
+  /**
+   * Clean a user-defined symptom list: trimmed, unique (ignoring case),
+   * at most 40 characters each and 60 entries.
+   */
+  function cleanSymptomList(list) {
+    var seen = {};
+    var out = [];
+    (Array.isArray(list) ? list : []).forEach(function (x) {
+      if (typeof x !== 'string') return;
+      var v = x.replace(/\s+/g, ' ').trim().slice(0, 40);
+      var key = v.toLowerCase();
+      if (!v || seen[key] || key.indexOf('mood:') === 0) return;
+      seen[key] = true;
+      out.push(v);
+    });
+    return out.slice(0, 60);
+  }
+
   var DEFAULT_SETTINGS = {
     cycleLength: 28,
     periodLength: 5,
@@ -253,47 +276,222 @@
     return result;
   }
 
+  // ---------- Cycle phases ----------
+
+  var PHASES = ['menstruation', 'follicular', 'ovulation', 'luteal'];
+
+  /**
+   * Phase of a given cycle day (1-based).
+   * Ovulation is placed `luteal` days before the next period and shown as a
+   * three-day phase around that day. Menstruation always wins.
+   */
+  function phaseOfDay(cycleDay, cycleLength, periodLength, lutealLength) {
+    var ov = cycleLength - Math.min(lutealLength, cycleLength - 1);
+    if (cycleDay <= periodLength) return 'menstruation';
+    if (Math.abs(cycleDay - ov) <= 1) return 'ovulation';
+    if (cycleDay < ov) return 'follicular';
+    return 'luteal';
+  }
+
+  /**
+   * Contiguous phase ranges for one cycle.
+   * @returns {Array<{phase,start,end,startDay,endDay}>}
+   */
+  function phaseRanges(start, cycleLength, periodLength, lutealLength) {
+    var out = [];
+    for (var cd = 1; cd <= cycleLength; cd++) {
+      var ph = phaseOfDay(cd, cycleLength, periodLength, lutealLength);
+      var last = out[out.length - 1];
+      if (last && last.phase === ph) {
+        last.endDay = cd;
+        last.end = addDays(start, cd - 1);
+      } else {
+        out.push({ phase: ph, startDay: cd, endDay: cd, start: addDays(start, cd - 1), end: addDays(start, cd - 1) });
+      }
+    }
+    return out;
+  }
+
+  /**
+   * Every cycle from the first logged period into the predicted future.
+   * kind: 'past' (completed), 'current' or 'predicted'.
+   */
+  function cycleTimeline(days, settings, today, count) {
+    var p = predict(days, settings, today, count || 3);
+    var stats = p.stats;
+    var list = [];
+    if (!p.lastPeriod) return { prediction: p, cycles: list };
+    stats.cycles.forEach(function (c) {
+      if (c.start >= p.lastPeriod.start) return;
+      list.push({ kind: 'past', start: c.start, length: c.length, periodLength: c.periodLength, valid: c.valid });
+    });
+    var last = p.lastPeriod;
+    var curPeriod = p.onPeriod ? Math.max(last.length, stats.periodLength) : last.length;
+    list.push({
+      kind: 'current',
+      start: last.start,
+      length: Math.max(1, diffDays(last.start, p.nextPeriod)),
+      periodLength: curPeriod,
+      valid: true
+    });
+    p.upcoming.forEach(function (u) {
+      list.push({ kind: 'predicted', start: u.start, length: stats.cycleLength, periodLength: stats.periodLength, valid: true });
+    });
+    return { prediction: p, cycles: list };
+  }
+
+  function tagsOf(entry) {
+    if (!entry) return [];
+    var t = (entry.symptoms || []).slice();
+    if (entry.mood) t.push('mood:' + entry.mood);
+    return t;
+  }
+
   /**
    * Classify every date in [from, to] for calendar rendering.
-   * @returns {Object} map ISO -> {logged, period, predicted, fertile, ovulation}
+   * @returns {Object} map ISO -> {phase, cycleDay, predicted, period, spotting, logged}
    */
-  function calendarMarks(days, prediction, from, to) {
+  function calendarMarks(days, settings, today, from, to) {
+    var count = 3;
+    var s = getStats(days, settings);
+    if (to > today) count = Math.min(60, Math.max(3, Math.ceil(diffDays(today, to) / s.cycleLength) + 1));
+    var tl = cycleTimeline(days, settings, today, count);
+    var luteal = tl.prediction.stats.lutealLength;
     var marks = {};
-    function mark(iso, key) {
-      if (iso < from || iso > to) return;
-      (marks[iso] = marks[iso] || {})[key] = true;
-    }
-    function markRange(a, b, key) {
-      for (var d = a; d <= b; d = addDays(d, 1)) mark(d, key);
-    }
+    function get(iso) { return (marks[iso] = marks[iso] || {}); }
+
+    tl.cycles.forEach(function (c) {
+      var end = addDays(c.start, c.length - 1);
+      if (end < from || c.start > to) return;
+      for (var cd = 1; cd <= c.length; cd++) {
+        var iso = addDays(c.start, cd - 1);
+        if (iso < from) continue;
+        if (iso > to) break;
+        var ph = phaseOfDay(cd, c.length, c.periodLength, luteal);
+        // A gap in logging: only the period itself is meaningful.
+        if (!c.valid && ph !== 'menstruation') continue;
+        var m = get(iso);
+        m.phase = ph;
+        m.cycleDay = cd;
+        m.predicted = c.kind === 'predicted' || (c.kind === 'current' && iso > today);
+      }
+    });
 
     Object.keys(days || {}).forEach(function (iso) {
+      if (iso < from || iso > to) return;
       var e = days[iso];
       if (!e) return;
-      if (isFlowDay(e)) mark(iso, 'period');
-      else if (e.flow === 'spotting') mark(iso, 'spotting');
-      if (e.flow || (e.symptoms && e.symptoms.length) || e.mood || e.note) mark(iso, 'logged');
-    });
-
-    if (prediction && prediction.upcoming) {
-      if (prediction.currentFertile && prediction.lastPeriod) {
-        var cf = prediction.currentFertile;
-        markRange(cf.start, cf.end, 'fertile');
-        mark(cf.ovulation, 'ovulation');
-      }
-      prediction.upcoming.forEach(function (u) {
-        markRange(u.start, u.end, 'predicted');
-        markRange(u.fertile.start, u.fertile.end, 'fertile');
-        mark(u.fertile.ovulation, 'ovulation');
-      });
-    }
-
-    // Logged period days take priority over predictions.
-    Object.keys(marks).forEach(function (iso) {
-      var m = marks[iso];
-      if (m.period) { delete m.predicted; delete m.fertile; delete m.ovulation; }
+      var m = get(iso);
+      if (isFlowDay(e)) { m.period = true; m.phase = 'menstruation'; m.predicted = false; }
+      else if (e.flow === 'spotting') m.spotting = true;
+      if (e.flow || tagsOf(e).length || e.note) m.logged = true;
     });
     return marks;
+  }
+
+  // ---------- Symptom and mood patterns ----------
+
+  // Where a day sits in its cycle. Days before ovulation are counted from the
+  // period start; later days are counted back from the next period, because
+  // PMS-type changes line up with the coming period, not the last one.
+  function cyclePosition(cycleDay, cycleLength, lutealLength) {
+    var ov = cycleLength - Math.min(lutealLength, cycleLength - 1);
+    if (cycleDay < ov - 1) return { r: 's', v: cycleDay };
+    return { r: 'e', v: cycleLength - cycleDay + 1 };
+  }
+
+  function samePosition(a, b) {
+    return a.r === b.r && Math.abs(a.v - b.v) <= 1;
+  }
+
+  /**
+   * Symptoms and moods that showed up at this point of the cycle before.
+   * Looks at the most recent completed cycles that have any logs, and flags a
+   * tag for a coming day when it appeared around the same cycle position in
+   * at least two of them and at least half of them.
+   * @returns {Array<{tag,label,kind,days:string[],cycles:number,of:number}>}
+   */
+  function patternForecast(days, settings, today, horizon) {
+    horizon = horizon || 7;
+    var tl = cycleTimeline(days, settings, today, 3);
+    var p = tl.prediction;
+    var luteal = p.stats.lutealLength;
+    if (!p.lastPeriod) return [];
+
+    var refs = [];
+    tl.cycles.forEach(function (c) {
+      if (c.kind !== 'past' || !c.valid) return;
+      var byTag = {};
+      var any = false;
+      for (var cd = 1; cd <= c.length; cd++) {
+        var tags = tagsOf(days[addDays(c.start, cd - 1)]);
+        if (!tags.length) continue;
+        any = true;
+        var pos = cyclePosition(cd, c.length, luteal);
+        tags.forEach(function (t) { (byTag[t] = byTag[t] || []).push(pos); });
+      }
+      if (any) refs.push(byTag);
+    });
+    refs = refs.slice(-RECENT_CYCLES);
+    if (refs.length < 2) return [];
+
+    var future = [];
+    for (var i = 0; i < horizon; i++) {
+      var d = addDays(today, i);
+      for (var k = tl.cycles.length - 1; k >= 0; k--) {
+        var c = tl.cycles[k];
+        if (c.kind !== 'past' && c.start <= d) {
+          future.push({ iso: d, pos: cyclePosition(diffDays(c.start, d) + 1, c.length, luteal) });
+          break;
+        }
+      }
+    }
+
+    var allTags = {};
+    refs.forEach(function (r) { Object.keys(r).forEach(function (t) { allTags[t] = true; }); });
+    var need = Math.max(2, Math.ceil(refs.length / 2));
+    var out = [];
+    Object.keys(allTags).forEach(function (tag) {
+      var hitDays = [];
+      var best = 0;
+      future.forEach(function (f) {
+        var n = refs.filter(function (r) {
+          return (r[tag] || []).some(function (q) { return samePosition(q, f.pos); });
+        }).length;
+        if (n >= need) { hitDays.push(f.iso); best = Math.max(best, n); }
+      });
+      if (!hitDays.length) return;
+      var isMood = tag.indexOf('mood:') === 0;
+      out.push({
+        tag: tag,
+        label: isMood ? tag.slice(5) : tag,
+        kind: isMood ? 'mood' : 'symptom',
+        days: hitDays,
+        cycles: best,
+        of: refs.length
+      });
+    });
+    out.sort(function (a, b) {
+      return a.days[0] < b.days[0] ? -1 : a.days[0] > b.days[0] ? 1 : b.cycles / b.of - a.cycles / a.of;
+    });
+    return out;
+  }
+
+  /**
+   * How often each symptom and mood was logged in each phase.
+   * @returns {Object} phase -> {tag: count}
+   */
+  function phaseTagCounts(days, settings, today) {
+    var dates = Object.keys(days || {}).filter(function (k) { return tagsOf(days[k]).length; }).sort();
+    var out = { menstruation: {}, follicular: {}, ovulation: {}, luteal: {} };
+    if (!dates.length) return out;
+    var marks = calendarMarks(days, settings, today, dates[0], dates[dates.length - 1]);
+    dates.forEach(function (iso) {
+      var ph = marks[iso] && marks[iso].phase;
+      if (!ph) return;
+      tagsOf(days[iso]).forEach(function (t) { out[ph][t] = (out[ph][t] || 0) + 1; });
+    });
+    return out;
   }
 
   /**
@@ -322,7 +520,8 @@
     return {
       version: 1,
       days: clean,
-      settings: normalizeSettings(raw.settings)
+      settings: normalizeSettings(raw.settings),
+      symptoms: Array.isArray(raw.symptoms) ? cleanSymptomList(raw.symptoms) : DEFAULT_SYMPTOMS.slice()
     };
   }
 
@@ -338,6 +537,14 @@
     getStats: getStats,
     predict: predict,
     calendarMarks: calendarMarks,
+    PHASES: PHASES,
+    DEFAULT_SYMPTOMS: DEFAULT_SYMPTOMS,
+    cleanSymptomList: cleanSymptomList,
+    phaseOfDay: phaseOfDay,
+    phaseRanges: phaseRanges,
+    cycleTimeline: cycleTimeline,
+    patternForecast: patternForecast,
+    phaseTagCounts: phaseTagCounts,
     sanitizeData: sanitizeData,
     normalizeSettings: normalizeSettings
   };

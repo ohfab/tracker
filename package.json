@@ -5,7 +5,18 @@
   "description": "A private, offline period tracker that keeps all data on your device.",
   "scripts": {
     "test": "node --test test/*.test.js",
-    "start": "npx --yes http-server -c-1 -p 8080 ."
+    "start": "npx --yes http-server -c-1 -p 8080 www",
+    "android": "cap sync android && cd android && ./gradlew assembleRelease"
   },
-  "license": "MIT"
+  "license": "MIT",
+  "dependencies": {
+    "@capacitor/android": "^8.5.3",
+    "@capacitor/app": "^8.1.2",
+    "@capacitor/core": "^8.5.3",
+    "@capacitor/filesystem": "^8.1.4",
+    "@capacitor/share": "^8.0.3"
+  },
+  "devDependencies": {
+    "@capacitor/cli": "^8.5.3"
+  }
 }

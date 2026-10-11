@@ -1,0 +1,72 @@
+name: Android app
+
+# Builds the Android APK on every push. On the default branch it also
+# publishes a GitHub release, so the newest APK is always at:
+# https://github.com/<owner>/<repo>/releases/latest/download/period-tracker.apk
+on:
+  push:
+    paths-ignore:
+      - '**.md'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: android-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          cache: npm
+
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: 21
+          cache: gradle
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Unit tests
+        run: npm test
+
+      - name: Copy web app into the Android project
+        run: npx cap sync android
+
+      - name: Build signed APK
+        working-directory: android
+        run: ./gradlew --no-daemon assembleRelease -PversionCode=${{ github.run_number }} -PversionName=1.0.${{ github.run_number }}
+
+      - name: Rename APK
+        run: cp android/app/build/outputs/apk/release/app-release.apk period-tracker.apk
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: period-tracker-apk
+          path: period-tracker.apk
+
+      - name: Publish release
+        if: github.ref_name == github.event.repository.default_branch
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: v1.0.${{ github.run_number }}
+          name: Period Tracker 1.0.${{ github.run_number }}
+          target_commitish: ${{ github.sha }}
+          make_latest: true
+          files: period-tracker.apk
+          body: |
+            Android app for the period tracker.
+
+            **Install:** open this page on your Android phone, tap `period-tracker.apk`, then open the download.
+            Android asks once to allow installs from your browser. Allow it, then tap Install.
+
+            **Update:** install the newer APK the same way. Your data stays in place.

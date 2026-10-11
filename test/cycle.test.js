@@ -1,7 +1,7 @@
 'use strict';
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const C = require('../cycle.js');
+const C = require('../www/cycle.js');
 
 // Log `len` days of medium flow starting at `start`.
 function logPeriod(days, start, len) {

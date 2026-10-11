@@ -5,6 +5,15 @@
   var C = window.Cycle;
   var STORAGE_KEY = 'period-tracker:v1';
 
+  // Running inside the Android/iOS app (Capacitor) rather than a browser.
+  var Cap = window.Capacitor;
+  var isNative = !!(Cap && typeof Cap.isNativePlatform === 'function' && Cap.isNativePlatform());
+
+  function nativePlugin(name) {
+    if (!isNative) return null;
+    return (Cap.Plugins && Cap.Plugins[name]) || Cap.registerPlugin(name);
+  }
+
   var FLOWS = [
     { id: '', label: 'None' },
     { id: 'spotting', label: 'Spotting' },
@@ -415,6 +424,42 @@
     renderAll();
   }
 
+  // In the app a download link does nothing, so the backup is written to the
+  // app's cache and handed to the system share sheet (Drive, email, Files...).
+  function exportNative() {
+    var Filesystem = nativePlugin('Filesystem');
+    var Share = nativePlugin('Share');
+    var name = 'period-tracker-' + today() + '.json';
+    setMsg('Preparing backup…');
+    Filesystem.writeFile({
+      path: name,
+      data: JSON.stringify(state, null, 2),
+      directory: 'CACHE',
+      encoding: 'utf8'
+    }).then(function (res) {
+      return Share.share({ title: 'Period Tracker backup', files: [res.uri], dialogTitle: 'Save backup to…' });
+    }).then(function () {
+      setMsg('Backup shared. Keep it somewhere private.');
+    }).catch(function (e) {
+      var msg = (e && e.message) || '';
+      setMsg(/cancel/i.test(msg) ? 'Export cancelled.' : 'Could not export: ' + (msg || 'unknown error'));
+    });
+  }
+
+  function initNative() {
+    var App = nativePlugin('App');
+    if (!App) return;
+    // Android back button: close the editor, then go back to Today, then leave.
+    App.addListener('backButton', function () {
+      var dlg = $('day-dialog');
+      if (dlg.open) dlg.close('cancel');
+      else if (currentView !== 'today') showView('today');
+      else App.exitApp();
+    });
+    // The app may sit in the background for days; refresh on return.
+    App.addListener('resume', function () { renderAll(); });
+  }
+
   // ---------- Tabs ----------
 
   var currentView = 'today';
@@ -515,6 +560,7 @@
     });
 
     $('btn-export').addEventListener('click', function () {
+      if (isNative) return exportNative();
       var blob = new Blob([JSON.stringify(state, null, 2)], { type: 'application/json' });
       var url = URL.createObjectURL(blob);
       var a = el('a', { href: url, download: 'period-tracker-' + today() + '.json' });
@@ -586,7 +632,9 @@
     renderAll();
     showView(startView);
 
-    if ('serviceWorker' in navigator && /^https?:$/.test(location.protocol)) {
+    initNative();
+
+    if (!isNative && 'serviceWorker' in navigator && /^https?:$/.test(location.protocol)) {
       navigator.serviceWorker.register('sw.js').catch(function () { /* offline support is optional */ });
     }
   }

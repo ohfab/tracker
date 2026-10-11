@@ -1,7 +1,8 @@
 // Caches the app shell so the tracker works offline once loaded.
 // No user data passes through here; it lives in localStorage.
-var CACHE = 'period-tracker-v1';
-var ASSETS = ['./', 'index.html', 'styles.css', 'cycle.js', 'app.js', 'icon.svg', 'manifest.webmanifest'];
+var CACHE = 'period-tracker-v2';
+var ASSETS = ['./', 'index.html', 'styles.css', 'cycle.js', 'app.js', 'icon.svg', 'manifest.webmanifest',
+  'icons/icon-192.png', 'icons/icon-512.png', 'icons/maskable-512.png', 'icons/apple-touch-icon.png'];
 
 self.addEventListener('install', function (event) {
   event.waitUntil(caches.open(CACHE).then(function (c) { return c.addAll(ASSETS); }).then(function () { return self.skipWaiting(); }));

@@ -1,0 +1,13 @@
+{
+  "name": "Period Tracker",
+  "short_name": "Periods",
+  "description": "A private period tracker. Your data never leaves this device.",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "background_color": "#fbf7f8",
+  "theme_color": "#c2416b",
+  "icons": [
+    { "src": "icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any maskable" }
+  ]
+}

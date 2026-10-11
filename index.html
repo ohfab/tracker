@@ -1,0 +1,181 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>Period Tracker</title>
+  <meta name="description" content="A private period tracker. Your data never leaves this device.">
+  <meta name="theme-color" content="#c2416b">
+  <link rel="icon" href="icon.svg" type="image/svg+xml">
+  <link rel="manifest" href="manifest.webmanifest">
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <header class="app-header">
+    <h1><span class="logo" aria-hidden="true"></span>Period Tracker</h1>
+    <p class="privacy-pill" title="Nothing is uploaded. Data is stored in this browser only.">On-device only</p>
+  </header>
+
+  <main>
+    <!-- TODAY -->
+    <section id="view-today" class="view" aria-labelledby="tab-today">
+      <div class="status-card">
+        <div class="ring" id="ring" role="img" aria-label="">
+          <svg viewBox="0 0 120 120" aria-hidden="true">
+            <circle class="ring-track" cx="60" cy="60" r="52"></circle>
+            <circle class="ring-fill" id="ring-fill" cx="60" cy="60" r="52"></circle>
+          </svg>
+          <div class="ring-text">
+            <span class="ring-label" id="ring-label">Welcome</span>
+            <span class="ring-big" id="ring-big">—</span>
+            <span class="ring-sub" id="ring-sub"></span>
+          </div>
+        </div>
+        <p class="phase" id="phase-text">Log the first day of your last period to get started.</p>
+        <div class="actions">
+          <button class="btn primary" id="btn-period-today" type="button">Period started today</button>
+          <button class="btn" id="btn-log-today" type="button">Log symptoms</button>
+        </div>
+      </div>
+
+      <div class="card">
+        <h2>Coming up</h2>
+        <ul class="upcoming" id="upcoming"></ul>
+        <p class="hint" id="defaults-hint" hidden>
+          Predictions use your default cycle settings until two periods are logged.
+        </p>
+      </div>
+
+      <p class="disclaimer">
+        Predictions are estimates based on your history. They are not medical advice
+        and should not be used as contraception.
+      </p>
+    </section>
+
+    <!-- CALENDAR -->
+    <section id="view-calendar" class="view" aria-labelledby="tab-calendar" hidden>
+      <div class="card">
+        <div class="cal-head">
+          <button class="icon-btn" id="cal-prev" type="button" aria-label="Previous month">‹</button>
+          <h2 id="cal-title" aria-live="polite"></h2>
+          <button class="icon-btn" id="cal-next" type="button" aria-label="Next month">›</button>
+        </div>
+        <div class="cal-grid cal-weekdays" id="cal-weekdays" aria-hidden="true"></div>
+        <div class="cal-grid" id="cal-grid" role="grid"></div>
+        <button class="btn small ghost" id="cal-today" type="button">Jump to today</button>
+        <ul class="legend">
+          <li><span class="sw period"></span>Period</li>
+          <li><span class="sw predicted"></span>Predicted</li>
+          <li><span class="sw fertile"></span>Fertile window</li>
+          <li><span class="sw ovulation"></span>Ovulation</li>
+          <li><span class="sw logged"></span>Has notes</li>
+        </ul>
+        <p class="hint">Tap a day to log flow, symptoms, mood or notes.</p>
+      </div>
+    </section>
+
+    <!-- INSIGHTS -->
+    <section id="view-insights" class="view" aria-labelledby="tab-insights" hidden>
+      <div class="tiles" id="tiles"></div>
+      <div class="card">
+        <h2>Cycle history</h2>
+        <div id="history"></div>
+      </div>
+      <div class="card">
+        <h2>Most logged symptoms</h2>
+        <div id="symptom-stats"></div>
+      </div>
+    </section>
+
+    <!-- SETTINGS -->
+    <section id="view-settings" class="view" aria-labelledby="tab-settings" hidden>
+      <form class="card" id="settings-form">
+        <h2>Cycle defaults</h2>
+        <p class="hint">Used until enough history is logged. After that, your own averages take over.</p>
+        <label class="field">
+          <span>Typical cycle length</span>
+          <span class="input-unit"><input type="number" name="cycleLength" min="15" max="90" required> days</span>
+        </label>
+        <label class="field">
+          <span>Typical period length</span>
+          <span class="input-unit"><input type="number" name="periodLength" min="1" max="15" required> days</span>
+        </label>
+        <label class="field">
+          <span>Luteal phase <small>(ovulation to next period)</small></span>
+          <span class="input-unit"><input type="number" name="lutealLength" min="7" max="20" required> days</span>
+        </label>
+        <button class="btn primary" type="submit">Save</button>
+        <span class="saved" id="settings-saved" role="status"></span>
+      </form>
+
+      <div class="card">
+        <h2>Your data</h2>
+        <p class="hint">
+          Everything is stored in this browser only. Nothing is sent anywhere.
+          Export a backup to move your data to another device.
+        </p>
+        <div class="actions wrap">
+          <button class="btn" id="btn-export" type="button">Export backup</button>
+          <label class="btn" for="import-file">Import backup</label>
+          <input type="file" id="import-file" accept="application/json,.json" hidden>
+          <button class="btn danger" id="btn-delete" type="button">Delete all data</button>
+        </div>
+        <p class="status-msg" id="data-msg" role="status"></p>
+      </div>
+    </section>
+  </main>
+
+  <nav class="tabs" role="tablist" aria-label="Sections">
+    <button role="tab" id="tab-today" data-view="today" aria-selected="true">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="8"/><path d="M12 7v5l3 2"/></svg>Today
+    </button>
+    <button role="tab" id="tab-calendar" data-view="calendar" aria-selected="false">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="4" y="5" width="16" height="15" rx="2"/><path d="M4 10h16M9 3v4M15 3v4"/></svg>Calendar
+    </button>
+    <button role="tab" id="tab-insights" data-view="insights" aria-selected="false">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 20V11M12 20V5M19 20v-6"/></svg>Insights
+    </button>
+    <button role="tab" id="tab-settings" data-view="settings" aria-selected="false">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="3"/><path d="M12 3v3M12 18v3M3 12h3M18 12h3M5.6 5.6l2.1 2.1M16.3 16.3l2.1 2.1M5.6 18.4l2.1-2.1M16.3 7.7l2.1-2.1"/></svg>Settings
+    </button>
+  </nav>
+
+  <!-- DAY EDITOR -->
+  <dialog id="day-dialog" aria-labelledby="day-title">
+    <form method="dialog" id="day-form">
+      <header class="dialog-head">
+        <h2 id="day-title"></h2>
+        <button class="icon-btn" value="cancel" type="submit" aria-label="Close">×</button>
+      </header>
+
+      <fieldset>
+        <legend>Flow</legend>
+        <div class="chips" id="flow-chips"></div>
+      </fieldset>
+
+      <fieldset>
+        <legend>Symptoms</legend>
+        <div class="chips" id="symptom-chips"></div>
+      </fieldset>
+
+      <fieldset>
+        <legend>Mood</legend>
+        <div class="chips" id="mood-chips"></div>
+      </fieldset>
+
+      <label class="field stacked">
+        <span>Notes</span>
+        <textarea name="note" id="day-note" rows="3" maxlength="2000" placeholder="Anything else worth remembering"></textarea>
+      </label>
+
+      <footer class="dialog-foot">
+        <button class="btn ghost danger-text" id="day-clear" type="button">Clear day</button>
+        <button class="btn primary" value="save" type="submit">Save</button>
+      </footer>
+    </form>
+  </dialog>
+
+  <script src="cycle.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>
